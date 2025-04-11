@@ -1,0 +1,407 @@
+import { spawn, ChildProcess } from 'child_process';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { MCPRegistry } from '../registry/MCPRegistry.js';
+import { MCPServerConfig, MCPServerStatus, CredentialRequirement, MCPServerCredentials } from '../types/index.js';
+import readline from 'readline';
+
+export class MCPClientManager {
+  private registry: MCPRegistry;
+  private activeClients: Map<string, { 
+    client: Client, 
+    process: ChildProcess | null,  // Make process nullable
+    transport: StdioClientTransport 
+  }> = new Map();
+
+  constructor(registry: MCPRegistry) {
+    this.registry = registry;
+  }
+
+  /**
+   * Prompt the user for credentials
+   */
+  private async promptForCredentials(requirements: CredentialRequirement[]): Promise<Record<string, string>> {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout
+    });
+
+    const credentials: Record<string, string> = {};
+
+    const question = (prompt: string, isSecret: boolean): Promise<string> => {
+      return new Promise((resolve) => {
+        // For a real implementation, would use a library that can mask password input
+        rl.question(prompt, (answer) => {
+          resolve(answer);
+        });
+      });
+    };
+
+    try {
+      console.log('Please provide the required credentials for this MCP server:');
+      
+      for (const req of requirements) {
+        const prompt = `${req.description}${req.required ? ' (required)' : ' (optional)'}: `;
+        const value = await question(prompt, req.isSecret);
+        
+        if (req.required && !value) {
+          console.log('This credential is required. Please provide a value.');
+          // Ask again if required
+          const retryValue = await question(prompt, req.isSecret);
+          if (!retryValue) {
+            throw new Error(`Required credential ${req.name} was not provided.`);
+          }
+          credentials[req.name] = retryValue;
+        } else if (value) {
+          credentials[req.name] = value;
+        }
+      }
+      
+      return credentials;
+    } finally {
+      rl.close();
+    }
+  }
+
+  /**
+   * Convert NodeJS.ProcessEnv to Record<string, string> by removing undefined values
+   */
+  private sanitizeEnv(env: NodeJS.ProcessEnv): Record<string, string> {
+    const sanitized: Record<string, string> = {};
+    for (const [key, value] of Object.entries(env)) {
+      if (value !== undefined) {
+        sanitized[key] = value;
+      }
+    }
+    return sanitized;
+  }
+
+  /**
+   * Install an MCP server if not already installed
+   */
+  async installServer(serverId: string): Promise<boolean> {
+    const config = this.registry.getServerConfig(serverId);
+    if (!config) {
+      throw new Error(`Server with ID ${serverId} not found`);
+    }
+
+    if (!config.installCommand) {
+      throw new Error(`Server ${serverId} does not have an install command defined`);
+    }
+
+    const status = this.registry.getServerStatus(serverId);
+    if (status?.installed) {
+      console.log(`Server ${serverId} is already installed`);
+      return true;
+    }
+
+    try {
+      // If server requires authentication, collect credentials
+      let serverCredentials: Record<string, string> = {};
+      if (config.requiresAuth && config.requiredCredentials && config.requiredCredentials.length > 0) {
+        console.log(`Server ${config.name} requires authentication.`);
+        serverCredentials = await this.promptForCredentials(config.requiredCredentials);
+        
+        // Store the credentials
+        await this.registry.storeCredentials({
+          serverId,
+          credentials: serverCredentials
+        });
+      }
+
+      // Execute installation command
+      return new Promise<boolean>((resolve, reject) => {
+        const [command, ...args] = config.installCommand!.split(' ');
+        
+        // Create environment with credentials
+        const processEnv = { 
+          ...process.env,
+          ...serverCredentials
+        };
+
+        console.log(`Installing ${config.name}...`);
+        const installProcess = spawn(command, args, { 
+          stdio: 'inherit',
+          shell: true,
+          env: this.sanitizeEnv(processEnv)
+        });
+
+        installProcess.on('close', (code) => {
+          if (code === 0) {
+            console.log(`Installation of ${config.name} completed successfully.`);
+            // Update server status
+            this.registry.updateServerStatus(serverId, { installed: true });
+            resolve(true);
+          } else {
+            reject(new Error(`Installation of server ${serverId} failed with exit code ${code}`));
+          }
+        });
+
+        installProcess.on('error', (error) => {
+          reject(new Error(`Installation of server ${serverId} failed: ${error.message}`));
+        });
+      });
+    } catch (error) {
+      console.error(`Failed to install server ${serverId}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Start an MCP server and create a client connection
+   */
+  async connectToServer(serverId: string): Promise<Client> {
+    // Check if we already have an active client
+    const existingClient = this.activeClients.get(serverId);
+    if (existingClient) {
+      // Check if the client is still healthy before returning it
+      try {
+        await this.checkServerHealth(serverId);
+        return existingClient.client;
+      } catch (error) {
+        console.log(`Existing client for ${serverId} is unhealthy, reconnecting...`);
+        // Continue to create a new connection if health check fails
+      }
+    }
+
+    // Get server configuration
+    const config = this.registry.getServerConfig(serverId);
+    if (!config) {
+      throw new Error(`Server with ID ${serverId} not found`);
+    }
+
+    // Check if the server is installed
+    const status = this.registry.getServerStatus(serverId);
+    if (!status?.installed) {
+      throw new Error(`Server ${serverId} is not installed`);
+    }
+
+    try {
+      // Get server credentials if needed
+      let processEnv = { ...process.env };
+      if (config.requiresAuth) {
+        const serverCredentials = this.registry.getCredentials(serverId);
+        if (serverCredentials?.credentials) {
+          processEnv = { 
+            ...processEnv, 
+            ...serverCredentials.credentials 
+          };
+        } else {
+          console.warn(`No credentials found for server ${serverId} which requires authentication.`);
+        }
+      }
+
+      console.log(`Starting ${config.name}...`);
+      
+      // Create transport with environment variables - sanitize environment for StdioClientTransport
+      const transport = new StdioClientTransport({
+        command: config.command,
+        args: config.args || [],
+        env: this.sanitizeEnv(processEnv)
+      });
+
+      // Create client
+      const client = new Client({
+        name: "mcp-client",
+        version: "1.0.0"
+      });
+
+      try {
+        // Connect to the server
+        console.log(`Connecting to ${config.name}...`);
+        await client.connect(transport);
+        console.log(`Successfully connected to ${config.name}`);
+        
+        // Try to access the child process from the transport
+        let childProcess: ChildProcess | null = null;
+        try {
+          // In the actual SDK, this may be accessed differently
+          childProcess = (transport as any).childProcess as ChildProcess;
+        } catch (error) {
+          console.warn(`Unable to access child process for ${serverId}: ${(error as Error).message}`);
+          // Continue even if we can't access the child process
+        }
+
+        // Store the client, process and transport
+        this.activeClients.set(serverId, { 
+          client, 
+          process: childProcess,
+          transport 
+        });
+
+        // Update server status
+        await this.registry.updateServerStatus(serverId, { running: true });
+
+        return client;
+      } catch (error) {
+        console.error(`Connection error for ${config.name}: ${(error as Error).message}`);
+        throw new Error(`Failed to connect to ${config.name}: ${(error as Error).message}`);
+      }
+    } catch (error) {
+      console.error(`Failed to connect to server ${serverId}:`, error);
+      await this.registry.updateServerStatus(serverId, { 
+        running: false, 
+        connectionError: (error as Error).message 
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Disconnect from an MCP server
+   */
+  async disconnectFromServer(serverId: string): Promise<void> {
+    const clientData = this.activeClients.get(serverId);
+    if (!clientData) {
+      return; // Already disconnected
+    }
+
+    try {
+      // Close the transport (actual method may vary based on SDK version)
+      // Using any type here since the SDK interface might not expose this method directly
+      try {
+        await (clientData.transport as any).disconnect?.();
+      } catch (error) {
+        console.warn(`Error disconnecting transport: ${(error as Error).message}`);
+      }
+      
+      // Terminate the process if exists and still running
+      if (clientData.process) {
+        try {
+          // Check if process is still running before attempting to kill it
+          if (clientData.process.exitCode === null) {
+            clientData.process.kill();
+            console.log(`Process for server ${serverId} terminated`);
+          }
+        } catch (error) {
+          console.warn(`Error terminating process: ${(error as Error).message}`);
+        }
+      }
+      
+      // Remove from active clients
+      this.activeClients.delete(serverId);
+      
+      // Update server status
+      await this.registry.updateServerStatus(serverId, { running: false });
+      console.log(`Disconnected from server ${serverId}`);
+    } catch (error) {
+      console.error(`Error disconnecting from server ${serverId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get an active client for a server, starting it if necessary
+   */
+  async getClient(serverId: string): Promise<Client> {
+    return this.connectToServer(serverId);
+  }
+
+  /**
+   * Check if a server is running and healthy
+   */
+  async checkServerHealth(serverId: string): Promise<boolean> {
+    const clientData = this.activeClients.get(serverId);
+    if (!clientData) {
+      console.log(`Server ${serverId} is not connected`);
+      return false; // Not connected
+    }
+
+    // Check if process exists and is still running
+    if (clientData.process) {
+      try {
+        if (clientData.process.exitCode !== null) {
+          console.log(`Process for server ${serverId} has exited with code ${clientData.process.exitCode}`);
+          await this.registry.updateServerStatus(serverId, { 
+            running: false,
+            connectionError: `Process exited with code ${clientData.process.exitCode}`
+          });
+          this.activeClients.delete(serverId);
+          return false;
+        }
+      } catch (error) {
+        console.warn(`Error checking process status: ${(error as Error).message}`);
+        // Continue even if we can't check the process status
+      }
+    }
+
+    try {
+      // Try to make a simple request to verify the connection
+      // Note: getInfo might not be available in all SDK versions
+      // Using any type as a workaround
+      const info = await (clientData.client as any).getInfo?.();
+      console.log(`Server ${serverId} health check passed`);
+      return true;
+    } catch (error) {
+      console.error(`Health check failed for server ${serverId}:`, error);
+      await this.registry.updateServerStatus(serverId, { 
+        running: false,
+        connectionError: (error as Error).message
+      });
+      
+      // Try to clean up the failed connection
+      await this.disconnectFromServer(serverId);
+      return false;
+    }
+  }
+
+  /**
+   * Execute a tool on an MCP server
+   */
+  async executeTool(
+    serverId: string, 
+    toolName: string, 
+    parameters: Record<string, any>
+  ): Promise<any> {
+    console.log(`Executing tool ${toolName} on server ${serverId} with parameters:`, parameters);
+    
+    // Verify server connection before tool execution
+    const isConnected = await this.checkServerHealth(serverId);
+    if (!isConnected) {
+      console.log(`Attempting to reconnect to server ${serverId}...`);
+      // Try to reconnect
+      await this.connectToServer(serverId);
+    }
+    
+    const client = await this.getClient(serverId);
+    
+    try {
+      console.log(`Calling tool ${toolName}...`);
+      const result = await client.callTool({
+        name: toolName,
+        arguments: parameters
+      });
+      
+      console.log(`Tool ${toolName} executed successfully`);
+      return result;
+    } catch (error) {
+      console.error(`Error executing tool ${toolName} on server ${serverId}:`, error);
+      
+      // Check server health on error
+      await this.checkServerHealth(serverId);
+      throw error;
+    }
+  }
+
+  /**
+   * List available tools on an MCP server
+   */
+  async listTools(serverId: string): Promise<any[]> {
+    console.log(`Listing tools for server ${serverId}...`);
+    const client = await this.getClient(serverId);
+    
+    try {
+      const toolsResponse = await client.listTools();
+      // Ensure we return an array, even if the SDK returns a different structure
+      const tools = Array.isArray(toolsResponse) ? toolsResponse : [];
+      console.log(`Found ${tools.length} tools on server ${serverId}`);
+      return tools;
+    } catch (error) {
+      console.error(`Error listing tools on server ${serverId}:`, error);
+      
+      // Check server health on error
+      await this.checkServerHealth(serverId);
+      throw error;
+    }
+  }
+} 

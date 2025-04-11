@@ -1,0 +1,78 @@
+[
+  {
+    "id": "slack-server",
+    "name": "Slack MCP Server",
+    "description": "Provides Slack messaging, channel management, and user interaction capabilities",
+    "command": "npx",
+    "args": [
+      "-y",
+      "@modelcontextprotocol/server-slack"
+    ],
+    "installCommand": "npm install -g @modelcontextprotocol/server-slack",
+    "requiresAuth": true,
+    "capabilities": [
+      "slack",
+      "messaging",
+      "channels",
+      "chat",
+      "users",
+      "threads",
+      "reactions"
+    ],
+    "requiredCredentials": [
+      {
+        "name": "SLACK_BOT_TOKEN",
+        "description": "Slack Bot Token (starts with xoxb-)",
+        "isSecret": true,
+        "required": true
+      },
+      {
+        "name": "SLACK_TEAM_ID",
+        "description": "Slack Team ID (starts with T)",
+        "isSecret": false,
+        "required": true
+      }
+    ]
+  },
+  {
+    "id": "gdrive-server",
+    "name": "Google Drive MCP Server",
+    "description": "Provides access to Google Drive files, documents, and spreadsheets",
+    "command": "npx",
+    "args": [
+      "-y",
+      "@isaacphi/mcp-gdrive"
+    ],
+    "installCommand": "npm install -g @isaacphi/mcp-gdrive",
+    "requiresAuth": true,
+    "capabilities": [
+      "gdrive",
+      "files",
+      "documents",
+      "sheets",
+      "spreadsheets",
+      "folders",
+      "docs"
+    ],
+    "requiredCredentials": [
+      {
+        "name": "CLIENT_ID",
+        "description": "Google OAuth Client ID",
+        "isSecret": false,
+        "required": true
+      },
+      {
+        "name": "CLIENT_SECRET",
+        "description": "Google OAuth Client Secret",
+        "isSecret": true,
+        "required": true
+      },
+      {
+        "name": "GDRIVE_CREDS_DIR",
+        "description": "Directory path to store Google Drive credentials",
+        "isSecret": false,
+        "required": true
+      }
+    ]
+  }
+]
