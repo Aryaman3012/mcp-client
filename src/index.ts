@@ -20,7 +20,7 @@ async function main() {
   // Create the AI-powered agents
   const serverSelectionAgent = new MCPIdentificationAgent(registry);
   const toolSelectionAgent = new CommandIntentAgent(registry);
-  const parameterGenerationAgent = new ParameterExtractionAgent();
+  const parameterGenerationAgent = new ParameterExtractionAgent(registry);
   
   // Start the CLI
   const rl = readline.createInterface({
@@ -30,7 +30,7 @@ async function main() {
   
   console.log('MCP Multi-Agent System initialized with AI. Type a command or "exit" to quit.');
   console.log('Available commands:');
-  console.log('- "exit": Exit the application');``
+  console.log('- "exit": Exit the application');
   console.log('- "list servers": List all registered MCP servers');
   console.log('- Any other command will be processed by the AI agent pipeline');
   

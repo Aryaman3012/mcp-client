@@ -8,6 +8,17 @@ export interface MCPServerConfig {
     requiresAuth: boolean;
     capabilities?: string[];
     requiredCredentials?: CredentialRequirement[];
+    tools?: {
+        [key: string]: {
+            name: string;
+            description: string;
+            inputSchema: {
+                type: string;
+                properties: Record<string, any>;
+                required: string[];
+            };
+        };
+    };
 }
 export interface CredentialRequirement {
     name: string;
@@ -28,6 +39,35 @@ export interface MCPServerStatus {
     installed: boolean;
     running: boolean;
     connectionError?: string;
+}
+export interface MCPIdentificationAgentResponse {
+    success: boolean;
+    output?: string;
+    error?: string;
+    data?: {
+        serverId: string;
+        serverName: string;
+        isInstalled: boolean;
+        requiresInstallation: boolean;
+    };
+}
+export interface CommandIntentAgentResponse {
+    success: boolean;
+    output?: string;
+    error?: string;
+    data?: {
+        toolName: string;
+        toolDescription: string;
+        requiredParameters: string[];
+    };
+}
+export interface ParameterExtractionAgentResponse {
+    success: boolean;
+    output?: string;
+    error?: string;
+    data?: {
+        parameters: Record<string, any>;
+    };
 }
 export interface AgentRequest {
     userId: string;

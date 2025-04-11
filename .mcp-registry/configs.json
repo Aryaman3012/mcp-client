@@ -1,5 +1,78 @@
 [
   {
+    "id": "example-server-1",
+    "name": "Example MCP Server 1",
+    "description": "Example server demonstrating basic configuration",
+    "command": "node server1.js",
+    "args": [
+      "--port",
+      "8080"
+    ],
+    "installCommand": "npm install",
+    "requiresAuth": false,
+    "capabilities": [
+      "basic"
+    ],
+    "tools": {
+      "basic_list": {
+        "name": "basic_list",
+        "description": "List items from the basic server",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "type": "number",
+              "description": "Maximum number of items to return"
+            }
+          },
+          "required": []
+        }
+      }
+    }
+  },
+  {
+    "id": "example-server-2",
+    "name": "Example MCP Server 2",
+    "description": "Example server demonstrating authentication",
+    "command": "python server2.py",
+    "args": [],
+    "installCommand": "pip install -r requirements.txt",
+    "requiresAuth": true,
+    "capabilities": [
+      "advanced"
+    ],
+    "requiredCredentials": [
+      {
+        "name": "API_KEY",
+        "description": "API Key for authentication",
+        "isSecret": true,
+        "required": true
+      }
+    ],
+    "tools": {
+      "advanced_process": {
+        "name": "advanced_process",
+        "description": "Process data with advanced server",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "data": {
+              "type": "string",
+              "description": "Data to process"
+            },
+            "mode": {
+              "type": "string",
+              "description": "Processing mode"
+            }
+          },
+          "required": [
+            "data"
+          ]
+        }
+      }
+    }
+  },
+  {
     "id": "slack-server",
     "name": "Slack MCP Server",
     "description": "Provides Slack messaging, channel management, and user interaction capabilities",
@@ -32,7 +105,48 @@
         "isSecret": false,
         "required": true
       }
-    ]
+    ],
+    "tools": {
+      "slack_list_channels": {
+        "name": "slack_list_channels",
+        "description": "List public channels in the workspace",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "type": "number",
+              "description": "Maximum number of channels to return"
+            },
+            "cursor": {
+              "type": "string",
+              "description": "Pagination cursor for next page"
+            }
+          },
+          "required": []
+        }
+      },
+      "slack_post_message": {
+        "name": "slack_post_message",
+        "description": "Post a new message to a Slack channel",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "channel_id": {
+              "type": "string",
+              "description": "The ID of the channel to post to"
+            },
+            "text": {
+              "type": "string",
+              "description": "The message text to post"
+            }
+          },
+          "required": [
+            "channel_id",
+            "text"
+          ]
+        }
+      }
+    }
   },
   {
     "id": "gdrive-server",
@@ -73,6 +187,52 @@
         "isSecret": false,
         "required": true
       }
-    ]
+    ],
+    "tools": {
+      "gdrive_list_files": {
+        "name": "gdrive_list_files",
+        "description": "List files in Google Drive",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "type": "number",
+              "description": "Maximum number of files to return"
+            },
+            "query": {
+              "type": "string",
+              "description": "Search query"
+            }
+          },
+          "required": []
+        }
+      },
+      "gdrive_update_cell": {
+        "name": "gdrive_update_cell",
+        "description": "Update a single cell in a Google Sheet",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "fileId": {
+              "type": "string",
+              "description": "ID of the spreadsheet"
+            },
+            "range": {
+              "type": "string",
+              "description": "Cell range in A1 notation (e.g., 'Sheet1!A1')"
+            },
+            "value": {
+              "type": "string",
+              "description": "New cell value"
+            }
+          },
+          "required": [
+            "fileId",
+            "range",
+            "value"
+          ]
+        }
+      }
+    }
   }
 ]

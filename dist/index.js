@@ -14,7 +14,7 @@ async function main() {
     // Create the AI-powered agents
     const serverSelectionAgent = new MCPIdentificationAgent(registry);
     const toolSelectionAgent = new CommandIntentAgent(registry);
-    const parameterGenerationAgent = new ParameterExtractionAgent();
+    const parameterGenerationAgent = new ParameterExtractionAgent(registry);
     // Start the CLI
     const rl = readline.createInterface({
         input: process.stdin,

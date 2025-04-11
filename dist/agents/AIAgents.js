@@ -36,85 +36,6 @@ const extractJson = (text) => {
         return '{}';
     }
 };
-// Mock functions for MCP server tools
-const getMCPServerTools = async (mcpId) => {
-    // In a real implementation, this would fetch tools from the MCP server
-    // For now, we'll return a mock response based on the mcpId
-    if (mcpId === 'slack-server') {
-        return {
-            'slack_list_channels': {
-                name: 'slack_list_channels',
-                description: 'List channels in a Slack workspace',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        limit: {
-                            type: 'number',
-                            description: 'Maximum number of channels to return'
-                        },
-                        exclude_archived: {
-                            type: 'boolean',
-                            description: 'Whether to exclude archived channels'
-                        }
-                    },
-                    required: []
-                }
-            },
-            'slack_post_message': {
-                name: 'slack_post_message',
-                description: 'Post a message to a Slack channel',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        channel: {
-                            type: 'string',
-                            description: 'Channel to post message to'
-                        },
-                        text: {
-                            type: 'string',
-                            description: 'Message text'
-                        }
-                    },
-                    required: ['channel', 'text']
-                }
-            }
-        };
-    }
-    else if (mcpId === 'gdrive-server') {
-        return {
-            'gdrive_list_files': {
-                name: 'gdrive_list_files',
-                description: 'List files in Google Drive',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        limit: {
-                            type: 'number',
-                            description: 'Maximum number of files to return'
-                        },
-                        query: {
-                            type: 'string',
-                            description: 'Search query'
-                        }
-                    },
-                    required: []
-                }
-            }
-        };
-    }
-    return null;
-};
-// Mock function to validate MCP server tool
-const validateMCPServerTool = (mcpId, toolName) => {
-    // In a real implementation, this would validate the tool against the MCP server
-    if (mcpId === 'slack-server') {
-        return ['slack_list_channels', 'slack_post_message'].includes(toolName);
-    }
-    else if (mcpId === 'gdrive-server') {
-        return ['gdrive_list_files'].includes(toolName);
-    }
-    return false;
-};
 /**
  * Agent 1: MCP Server Identification and Installation Agent
  */
@@ -127,6 +48,20 @@ export class MCPIdentificationAgent {
     }
     get registry() {
         return this.mcpRegistry;
+    }
+    async getMCPServerTools(mcpId) {
+        const serverConfig = this.mcpRegistry.getServerConfig(mcpId);
+        if (!serverConfig || !serverConfig.tools) {
+            return null;
+        }
+        return serverConfig.tools;
+    }
+    validateMCPServerTool(mcpId, toolName) {
+        const serverConfig = this.mcpRegistry.getServerConfig(mcpId);
+        if (!serverConfig || !serverConfig.tools) {
+            return false;
+        }
+        return toolName in serverConfig.tools;
     }
     async identifyAndPrepareServer(command) {
         // Use Azure OpenAI to identify MCP
@@ -211,8 +146,22 @@ export class CommandIntentAgent {
         this.client = createOpenAIClient();
         this.mcpRegistry = mcpRegistry;
     }
+    async getMCPServerTools(mcpId) {
+        const serverConfig = this.mcpRegistry.getServerConfig(mcpId);
+        if (!serverConfig || !serverConfig.tools) {
+            return null;
+        }
+        return serverConfig.tools;
+    }
+    validateMCPServerTool(mcpId, toolName) {
+        const serverConfig = this.mcpRegistry.getServerConfig(mcpId);
+        if (!serverConfig || !serverConfig.tools) {
+            return false;
+        }
+        return toolName in serverConfig.tools;
+    }
     async identifyTool(command, mcpId) {
-        const tools = await getMCPServerTools(mcpId);
+        const tools = await this.getMCPServerTools(mcpId);
         if (!tools) {
             throw new Error(`No tools found for MCP server ${mcpId}`);
         }
@@ -241,7 +190,7 @@ Identify the most appropriate tool. Respond in JSON:
             const jsonStr = extractJson(content);
             console.log("Extracted JSON:", jsonStr);
             const result = JSON.parse(jsonStr);
-            if (!validateMCPServerTool(mcpId, result.toolName)) {
+            if (!this.validateMCPServerTool(mcpId, result.toolName)) {
                 throw new Error(`Invalid tool identified: ${result.toolName}`);
             }
             const tool = tools[result.toolName];
@@ -290,12 +239,14 @@ Identify the most appropriate tool. Respond in JSON:
  */
 export class ParameterExtractionAgent {
     client;
-    constructor() {
+    mcpRegistry;
+    constructor(mcpRegistry) {
         this.client = createOpenAIClient();
+        this.mcpRegistry = mcpRegistry;
     }
     async generateParameters(command, mcpId, toolName) {
-        const tools = await getMCPServerTools(mcpId);
-        const tool = tools?.[toolName];
+        const serverConfig = this.mcpRegistry.getServerConfig(mcpId);
+        const tool = serverConfig?.tools?.[toolName];
         if (!tool) {
             throw new Error(`Tool ${toolName} not found for MCP server ${mcpId}`);
         }

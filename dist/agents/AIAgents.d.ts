@@ -29,6 +29,8 @@ export declare class MCPIdentificationAgent {
     private mcpRegistry;
     constructor(mcpRegistry: MCPRegistry);
     get registry(): MCPRegistry;
+    private getMCPServerTools;
+    private validateMCPServerTool;
     identifyAndPrepareServer(command: string): Promise<MCPServerIdentification>;
     validateServer(mcpId: string | undefined, mcpName: string | undefined): Promise<MCPServerIdentification>;
     process(request: any): Promise<any>;
@@ -40,6 +42,8 @@ export declare class CommandIntentAgent {
     private client;
     private mcpRegistry;
     constructor(mcpRegistry: MCPRegistry);
+    private getMCPServerTools;
+    private validateMCPServerTool;
     identifyTool(command: string, mcpId: string): Promise<ToolIdentification>;
     process(request: any): Promise<any>;
 }
@@ -48,7 +52,8 @@ export declare class CommandIntentAgent {
  */
 export declare class ParameterExtractionAgent {
     private client;
-    constructor();
+    private mcpRegistry;
+    constructor(mcpRegistry: MCPRegistry);
     generateParameters(command: string, mcpId: string, toolName: string): Promise<ParameterGeneration>;
     process(request: any): Promise<any>;
 }

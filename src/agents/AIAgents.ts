@@ -42,87 +42,6 @@ const extractJson = (text: string): string => {
   }
 };
 
-// Mock functions for MCP server tools
-const getMCPServerTools = async (mcpId: string): Promise<Record<string, any> | null> => {
-  // In a real implementation, this would fetch tools from the MCP server
-  // For now, we'll return a mock response based on the mcpId
-  if (mcpId === 'slack-server') {
-    return {
-      'slack_list_channels': {
-        name: 'slack_list_channels',
-        description: 'List channels in a Slack workspace',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            limit: {
-              type: 'number',
-              description: 'Maximum number of channels to return'
-            },
-            exclude_archived: {
-              type: 'boolean',
-              description: 'Whether to exclude archived channels'
-            }
-          },
-          required: []
-        }
-      },
-      'slack_post_message': {
-        name: 'slack_post_message',
-        description: 'Post a message to a Slack channel',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            channel: {
-              type: 'string',
-              description: 'Channel to post message to'
-            },
-            text: {
-              type: 'string',
-              description: 'Message text'
-            }
-          },
-          required: ['channel', 'text']
-        }
-      }
-    };
-  } else if (mcpId === 'gdrive-server') {
-    return {
-      'gdrive_list_files': {
-        name: 'gdrive_list_files',
-        description: 'List files in Google Drive',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            limit: {
-              type: 'number',
-              description: 'Maximum number of files to return'
-            },
-            query: {
-              type: 'string',
-              description: 'Search query'
-            }
-          },
-          required: []
-        }
-      }
-    };
-  }
-  
-  return null;
-};
-
-// Mock function to validate MCP server tool
-const validateMCPServerTool = (mcpId: string, toolName: string): boolean => {
-  // In a real implementation, this would validate the tool against the MCP server
-  if (mcpId === 'slack-server') {
-    return ['slack_list_channels', 'slack_post_message'].includes(toolName);
-  } else if (mcpId === 'gdrive-server') {
-    return ['gdrive_list_files'].includes(toolName);
-  }
-  
-  return false;
-};
-
 interface MCPCredential {
   name: string;
   description: string;
@@ -161,8 +80,26 @@ export class MCPIdentificationAgent {
     this.mcpRegistry = mcpRegistry;
   }
 
-  public get registry(): MCPRegistry {
+  get registry(): MCPRegistry {
     return this.mcpRegistry;
+  }
+
+  private async getMCPServerTools(mcpId: string): Promise<Record<string, any> | null> {
+    const serverConfig = this.mcpRegistry.getServerConfig(mcpId);
+    if (!serverConfig || !serverConfig.tools) {
+      return null;
+    }
+    
+    return serverConfig.tools;
+  }
+
+  private validateMCPServerTool(mcpId: string, toolName: string): boolean {
+    const serverConfig = this.mcpRegistry.getServerConfig(mcpId);
+    if (!serverConfig || !serverConfig.tools) {
+      return false;
+    }
+    
+    return toolName in serverConfig.tools;
   }
 
   public async identifyAndPrepareServer(command: string): Promise<MCPServerIdentification> {
@@ -265,8 +202,26 @@ export class CommandIntentAgent {
     this.mcpRegistry = mcpRegistry;
   }
 
+  private async getMCPServerTools(mcpId: string): Promise<Record<string, any> | null> {
+    const serverConfig = this.mcpRegistry.getServerConfig(mcpId);
+    if (!serverConfig || !serverConfig.tools) {
+      return null;
+    }
+    
+    return serverConfig.tools;
+  }
+
+  private validateMCPServerTool(mcpId: string, toolName: string): boolean {
+    const serverConfig = this.mcpRegistry.getServerConfig(mcpId);
+    if (!serverConfig || !serverConfig.tools) {
+      return false;
+    }
+    
+    return toolName in serverConfig.tools;
+  }
+
   public async identifyTool(command: string, mcpId: string): Promise<ToolIdentification> {
-    const tools = await getMCPServerTools(mcpId);
+    const tools = await this.getMCPServerTools(mcpId);
     if (!tools) {
       throw new Error(`No tools found for MCP server ${mcpId}`);
     }
@@ -299,7 +254,7 @@ Identify the most appropriate tool. Respond in JSON:
       console.log("Extracted JSON:", jsonStr);
       const result = JSON.parse(jsonStr);
       
-      if (!validateMCPServerTool(mcpId, result.toolName)) {
+      if (!this.validateMCPServerTool(mcpId, result.toolName)) {
         throw new Error(`Invalid tool identified: ${result.toolName}`);
       }
 
@@ -351,18 +306,20 @@ Identify the most appropriate tool. Respond in JSON:
  */
 export class ParameterExtractionAgent {
   private client: AzureOpenAI;
+  private mcpRegistry: MCPRegistry;
 
-  constructor() {
+  constructor(mcpRegistry: MCPRegistry) {
     this.client = createOpenAIClient();
+    this.mcpRegistry = mcpRegistry;
   }
-  
+
   public async generateParameters(
     command: string,
     mcpId: string,
     toolName: string
   ): Promise<ParameterGeneration> {
-    const tools = await getMCPServerTools(mcpId);
-    const tool = tools?.[toolName];
+    const serverConfig = this.mcpRegistry.getServerConfig(mcpId);
+    const tool = serverConfig?.tools?.[toolName];
     
     if (!tool) {
       throw new Error(`Tool ${toolName} not found for MCP server ${mcpId}`);

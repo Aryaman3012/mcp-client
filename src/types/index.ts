@@ -9,6 +9,17 @@ export interface MCPServerConfig {
   requiresAuth: boolean;
   capabilities?: string[];
   requiredCredentials?: CredentialRequirement[];
+  tools?: {
+    [key: string]: {
+      name: string;
+      description: string;
+      inputSchema: {
+        type: string;
+        properties: Record<string, any>;
+        required: string[];
+      };
+    };
+  };
 }
 
 export interface CredentialRequirement {
@@ -34,7 +45,40 @@ export interface MCPServerStatus {
   connectionError?: string;
 }
 
-// Types for Agent System
+// Agent Interfaces
+export interface MCPIdentificationAgentResponse {
+  success: boolean;
+  output?: string;
+  error?: string;
+  data?: {
+    serverId: string;
+    serverName: string;
+    isInstalled: boolean;
+    requiresInstallation: boolean;
+  };
+}
+
+export interface CommandIntentAgentResponse {
+  success: boolean;
+  output?: string;
+  error?: string;
+  data?: {
+    toolName: string;
+    toolDescription: string;
+    requiredParameters: string[];
+  };
+}
+
+export interface ParameterExtractionAgentResponse {
+  success: boolean;
+  output?: string;
+  error?: string;
+  data?: {
+    parameters: Record<string, any>;
+  };
+}
+
+// Common Agent Request/Response types
 export interface AgentRequest {
   userId: string;
   command: string;
@@ -48,7 +92,7 @@ export interface AgentResponse {
   data?: Record<string, any>;
 }
 
-// Types for Tool Execution
+// Tool Execution types
 export interface ToolExecutionRequest {
   serverId: string;
   toolName: string;

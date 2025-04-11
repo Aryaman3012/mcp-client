@@ -1,24 +1,14 @@
-import { Agent } from '../agents/Agent.js';
-import { AgentRequest, AgentResponse, ToolExecutionRequest, ToolExecutionResponse } from '../types/index.js';
+import { AgentResponse } from '../types/index.js';
 import { MCPClientManager } from './MCPClientManager.js';
+import { MCPIdentificationAgent, CommandIntentAgent, ParameterExtractionAgent } from '../agents/AIAgents.js';
 
 export class AgentPipeline {
-  private serverSelectionAgent: Agent;
-  private toolSelectionAgent: Agent;
-  private parameterGenerationAgent: Agent;
-  private clientManager: MCPClientManager;
-
   constructor(
-    serverSelectionAgent: Agent,
-    toolSelectionAgent: Agent,
-    parameterGenerationAgent: Agent,
-    clientManager: MCPClientManager
-  ) {
-    this.serverSelectionAgent = serverSelectionAgent;
-    this.toolSelectionAgent = toolSelectionAgent;
-    this.parameterGenerationAgent = parameterGenerationAgent;
-    this.clientManager = clientManager;
-  }
+    private serverSelectionAgent: MCPIdentificationAgent,
+    private toolSelectionAgent: CommandIntentAgent,
+    private parameterGenerationAgent: ParameterExtractionAgent,
+    private clientManager: MCPClientManager
+  ) {}
 
   /**
    * Process a user command through the entire agent pipeline
@@ -26,83 +16,44 @@ export class AgentPipeline {
   async processCommand(userId: string, command: string): Promise<AgentResponse> {
     try {
       // Step 1: Server Selection
-      console.log(`[Pipeline] Processing with ${this.serverSelectionAgent.getName()}`);
-      const serverSelectionRequest: AgentRequest = {
-        userId,
-        command
-      };
-      
-      const serverSelectionResponse = await this.serverSelectionAgent.process(serverSelectionRequest);
-      
-      if (!serverSelectionResponse.success) {
-        return serverSelectionResponse; // Return error from server selection
+      const serverSelection = await this.serverSelectionAgent.process({ userId, command });
+      if (!serverSelection.success) {
+        return serverSelection;
       }
 
       // Step 2: Tool Selection
-      console.log(`[Pipeline] Processing with ${this.toolSelectionAgent.getName()}`);
-      const toolSelectionRequest: AgentRequest = {
+      const toolSelection = await this.toolSelectionAgent.process({
         userId,
         command,
-        context: {
-          serverDetails: serverSelectionResponse.data
-        }
-      };
-      
-      const toolSelectionResponse = await this.toolSelectionAgent.process(toolSelectionRequest);
-      
-      if (!toolSelectionResponse.success) {
-        return toolSelectionResponse; // Return error from tool selection
+        context: { serverDetails: serverSelection.data }
+      });
+      if (!toolSelection.success) {
+        return toolSelection;
       }
 
       // Step 3: Parameter Generation
-      console.log(`[Pipeline] Processing with ${this.parameterGenerationAgent.getName()}`);
-      const parameterGenerationRequest: AgentRequest = {
+      const parameterGeneration = await this.parameterGenerationAgent.process({
         userId,
         command,
         context: {
-          serverDetails: serverSelectionResponse.data,
-          toolDetails: toolSelectionResponse.data
+          serverDetails: serverSelection.data,
+          toolDetails: toolSelection.data
         }
-      };
-      
-      const parameterGenerationResponse = await this.parameterGenerationAgent.process(parameterGenerationRequest);
-      
-      if (!parameterGenerationResponse.success) {
-        return parameterGenerationResponse; // Return error from parameter generation
+      });
+      if (!parameterGeneration.success) {
+        return parameterGeneration;
       }
 
-      // Step 4: Execute the tool with the generated parameters
-      console.log(`[Pipeline] Executing tool on MCP server`);
-      const toolExecutionRequest: ToolExecutionRequest = {
-        serverId: serverSelectionResponse.data!.serverId,
-        toolName: toolSelectionResponse.data!.toolName,
-        parameters: parameterGenerationResponse.data!.parameters
-      };
-      
-      const toolExecutionResult = await this.executeTool(toolExecutionRequest);
-      
-      // Return final result
-      if (toolExecutionResult.success) {
-        return {
-          success: true,
-          output: this.formatOutput(toolExecutionResult.content),
-          data: {
-            serverDetails: serverSelectionResponse.data,
-            toolDetails: toolSelectionResponse.data,
-            parameters: parameterGenerationResponse.data!.parameters,
-            result: toolExecutionResult.content
-          }
-        };
-      } else {
-        return {
-          success: false,
-          error: `Tool execution failed: ${toolExecutionResult.error}`
-        };
-      }
+      // Step 4: Execute Tool
+      return this.executeTool(
+        serverSelection.data.serverId,
+        toolSelection.data.toolName,
+        parameterGeneration.data.parameters
+      );
     } catch (error) {
       return {
         success: false,
-        error: `Pipeline execution failed: ${(error as Error).message}`
+        error: `Pipeline error: ${(error as Error).message}`
       };
     }
   }
@@ -110,33 +61,22 @@ export class AgentPipeline {
   /**
    * Execute a tool on an MCP server
    */
-  private async executeTool(request: ToolExecutionRequest): Promise<ToolExecutionResponse> {
+  private async executeTool(
+    serverId: string,
+    toolName: string,
+    parameters: Record<string, any>
+  ): Promise<AgentResponse> {
     try {
-      // Check server health before executing the tool
-      const isHealthy = await this.clientManager.checkServerHealth(request.serverId);
-      
-      if (!isHealthy) {
-        return {
-          success: false,
-          error: `Server ${request.serverId} is not healthy`
-        };
-      }
-
-      // Execute the tool
-      const result = await this.clientManager.executeTool(
-        request.serverId,
-        request.toolName,
-        request.parameters
-      );
-      
+      const result = await this.clientManager.executeTool(serverId, toolName, parameters);
       return {
         success: true,
-        content: result
+        output: this.formatOutput(result),
+        data: result
       };
     } catch (error) {
       return {
         success: false,
-        error: `Tool execution failed: ${(error as Error).message}`
+        error: `Tool execution error: ${(error as Error).message}`
       };
     }
   }
@@ -144,23 +84,19 @@ export class AgentPipeline {
   /**
    * Format the tool execution output for display
    */
-  private formatOutput(content: any): string {
-    if (!content) {
-      return 'No output';
+  private formatOutput(result: any): string {
+    if (!result) {
+      return 'No result';
     }
-    
-    // For text content, extract the text
-    if (Array.isArray(content.content)) {
-      const textItems = content.content
-        .filter((item: any) => item.type === 'text')
-        .map((item: any) => item.text);
-      
-      if (textItems.length > 0) {
-        return textItems.join('\n');
-      }
+
+    if (typeof result === 'string') {
+      return result;
     }
-    
-    // Fallback to JSON stringification for other content types
-    return JSON.stringify(content, null, 2);
+
+    if (Array.isArray(result)) {
+      return result.join('\n');
+    }
+
+    return JSON.stringify(result, null, 2);
   }
 } 
