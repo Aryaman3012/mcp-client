@@ -326,4 +326,124 @@ Generate appropriate parameter values. Respond in JSON:
         }
     }
 }
+/**
+ * Agent 4: Response Processing Agent
+ * Converts MCP server responses into natural language
+ */
+export class ResponseProcessingAgent {
+    client;
+    mcpRegistry;
+    constructor(mcpRegistry) {
+        this.client = createOpenAIClient();
+        this.mcpRegistry = mcpRegistry;
+    }
+    async process(request) {
+        try {
+            const serverConfig = this.mcpRegistry.getServerConfig(request.context.serverId);
+            const tool = serverConfig?.tools?.[request.context.toolName];
+            if (!tool) {
+                return {
+                    success: false,
+                    error: `Tool ${request.context.toolName} not found`
+                };
+            }
+            const prompt = `You are a helpful assistant that converts technical API responses into natural language.
+Given this context:
+- Tool: ${request.context.toolName}
+- Tool Description: ${tool.description}
+- Parameters Used: ${JSON.stringify(request.context.parameters)}
+
+And this API response:
+${JSON.stringify(request.result, null, 2)}
+
+Convert this into a natural, user-friendly response. Focus on the key information and present it in a clear, conversational way.
+DO NOT mention technical details like API calls or JSON structures.
+DO NOT include any technical formatting or markdown.
+Just write a natural response as if you're explaining the result to a user.
+
+Example formats for different tools:
+- For slack_list_channels: "I found X channels. Here they are: [list channels with descriptions]"
+- For slack_post_message: "Your message has been sent to [channel]"
+- For slack_get_messages: "Here are the recent messages from [channel]: [format messages nicely]"
+
+Response:`;
+            const response = await this.client.chat.completions.create({
+                model: AZURE_CONFIG.deployment,
+                messages: [{ role: "user", content: prompt }],
+            });
+            const processedResponse = response.choices[0]?.message?.content || 'Sorry, I could not process the response.';
+            return {
+                success: true,
+                output: processedResponse.trim(),
+                data: request.result
+            };
+        }
+        catch (error) {
+            console.error('Error processing response:', error);
+            // Fallback to basic formatting if AI processing fails
+            return {
+                success: true,
+                output: this.fallbackFormatting(request.result),
+                data: request.result
+            };
+        }
+    }
+    fallbackFormatting(result) {
+        if (!result) {
+            return 'No results to display.';
+        }
+        if (typeof result === 'string') {
+            return result;
+        }
+        if (Array.isArray(result)) {
+            if (result.length === 0) {
+                return 'No items found.';
+            }
+            return result.map(item => this.formatItem(item)).join('\n');
+        }
+        if (typeof result === 'object') {
+            if ('error' in result) {
+                return `Error: ${result.error}`;
+            }
+            if ('message' in result) {
+                return result.message;
+            }
+            return Object.entries(result)
+                .map(([key, value]) => `${this.humanizeKey(key)}: ${this.formatItem(value)}`)
+                .join('\n');
+        }
+        return String(result);
+    }
+    formatItem(item) {
+        if (!item) {
+            return '';
+        }
+        if (typeof item !== 'object') {
+            return String(item);
+        }
+        if ('name' in item) {
+            return item.name;
+        }
+        if ('title' in item) {
+            return item.title;
+        }
+        if ('text' in item) {
+            return item.text;
+        }
+        if ('message' in item) {
+            return item.message;
+        }
+        return JSON.stringify(item)
+            .replace(/[{}"]/g, '')
+            .replace(/,/g, ', ');
+    }
+    humanizeKey(key) {
+        return key
+            .replace(/([A-Z])/g, ' $1')
+            .replace(/_/g, ' ')
+            .toLowerCase()
+            .replace(/^./, str => str.toUpperCase())
+            .trim();
+    }
+}
 //# sourceMappingURL=AIAgents.js.map

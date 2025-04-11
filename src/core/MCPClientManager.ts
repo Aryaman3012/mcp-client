@@ -96,17 +96,19 @@ export class MCPClientManager {
     }
 
     try {
-      // If server requires authentication, collect credentials
+      // If server requires authentication, check for existing credentials
       let serverCredentials: Record<string, string> = {};
       if (config.requiresAuth && config.requiredCredentials && config.requiredCredentials.length > 0) {
-        console.log(`Server ${config.name} requires authentication.`);
-        serverCredentials = await this.promptForCredentials(config.requiredCredentials);
-        
-        // Store the credentials
-        await this.registry.storeCredentials({
-          serverId,
-          credentials: serverCredentials
-        });
+        const existingCredentials = this.registry.getCredentials(serverId);
+        if (!existingCredentials?.credentials) {
+          // Instead of prompting, throw an error that will be caught by the API layer
+          throw {
+            credentialsRequired: true,
+            serverId,
+            requiredCredentials: config.requiredCredentials
+          };
+        }
+        serverCredentials = existingCredentials.credentials;
       }
 
       // Execute installation command
@@ -187,7 +189,12 @@ export class MCPClientManager {
             ...serverCredentials.credentials 
           };
         } else {
-          console.warn(`No credentials found for server ${serverId} which requires authentication.`);
+          // Instead of just warning, throw an error that will be caught by the API layer
+          throw {
+            credentialsRequired: true,
+            serverId,
+            requiredCredentials: config.requiredCredentials
+          };
         }
       }
 
@@ -403,5 +410,26 @@ export class MCPClientManager {
       await this.checkServerHealth(serverId);
       throw error;
     }
+  }
+
+  /**
+   * Get the server configuration
+   */
+  getServerConfig(serverId: string): MCPServerConfig | undefined {
+    return this.registry.getServerConfig(serverId);
+  }
+
+  /**
+   * Get the server status
+   */
+  getServerStatus(serverId: string): MCPServerStatus | undefined {
+    return this.registry.getServerStatus(serverId);
+  }
+
+  /**
+   * Check if credentials exist for the server
+   */
+  hasCredentials(serverId: string): boolean {
+    return !!this.registry.getCredentials(serverId);
   }
 } 

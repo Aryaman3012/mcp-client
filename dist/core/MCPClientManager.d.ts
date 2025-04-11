@@ -1,5 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { MCPRegistry } from '../registry/MCPRegistry.js';
+import { MCPServerConfig, MCPServerStatus } from '../types/index.js';
 export declare class MCPClientManager {
     private registry;
     private activeClients;
@@ -40,4 +41,16 @@ export declare class MCPClientManager {
      * List available tools on an MCP server
      */
     listTools(serverId: string): Promise<any[]>;
+    /**
+     * Get the server configuration
+     */
+    getServerConfig(serverId: string): MCPServerConfig | undefined;
+    /**
+     * Get the server status
+     */
+    getServerStatus(serverId: string): MCPServerStatus | undefined;
+    /**
+     * Check if credentials exist for the server
+     */
+    hasCredentials(serverId: string): boolean;
 }

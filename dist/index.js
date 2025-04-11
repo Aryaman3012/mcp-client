@@ -1,7 +1,8 @@
 import readline from 'readline';
 import { MCPRegistry } from './registry/MCPRegistry.js';
 import { MCPClientManager } from './core/MCPClientManager.js';
-import { MCPIdentificationAgent, CommandIntentAgent, ParameterExtractionAgent } from './agents/AIAgents.js';
+import { MCPIdentificationAgent, CommandIntentAgent, ParameterExtractionAgent, ResponseProcessingAgent } from './agents/AIAgents.js';
+import { APIServer } from './api/server.js';
 async function main() {
     console.log('Initializing MCP Multi-Agent System with AI...');
     // Initialize the registry
@@ -15,155 +16,174 @@ async function main() {
     const serverSelectionAgent = new MCPIdentificationAgent(registry);
     const toolSelectionAgent = new CommandIntentAgent(registry);
     const parameterGenerationAgent = new ParameterExtractionAgent(registry);
-    // Start the CLI
-    const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout
-    });
-    console.log('MCP Multi-Agent System initialized with AI. Type a command or "exit" to quit.');
-    console.log('Available commands:');
-    console.log('- "exit": Exit the application');
-    console.log('- "list servers": List all registered MCP servers');
-    console.log('- Any other command will be processed by the AI agent pipeline');
-    // Simple user ID for the demo
-    const userId = 'user1';
-    // Start the CLI loop
-    prompt();
-    function prompt() {
-        rl.question('> ', async (command) => {
-            if (command.toLowerCase() === 'exit') {
-                rl.close();
-                process.exit(0);
-            }
-            else if (command.toLowerCase() === 'list servers') {
-                // List registered servers
-                const servers = registry.getAllServerConfigs();
-                console.log('\nRegistered MCP Servers:');
-                servers.forEach(server => {
-                    const status = registry.getServerStatus(server.id);
-                    console.log(`- ${server.name} (${server.id}):`);
-                    console.log(`  Description: ${server.description || 'N/A'}`);
-                    console.log(`  Installed: ${status?.installed ? 'Yes' : 'No'}`);
-                    console.log(`  Running: ${status?.running ? 'Yes' : 'No'}`);
-                    console.log(`  Command: ${server.command} ${server.args?.join(' ') || ''}`);
-                    console.log(`  Capabilities: ${server.capabilities?.join(', ') || 'N/A'}`);
-                    console.log(`  Requires Auth: ${server.requiresAuth ? 'Yes' : 'No'}`);
-                    console.log('');
-                });
-                prompt();
-            }
-            else if (command.toLowerCase().startsWith('register ')) {
-                // Parse and register a new server
-                try {
-                    const serverJson = command.substring('register '.length);
-                    const config = JSON.parse(serverJson);
-                    await registry.registerServer(config);
-                    console.log(`Server ${config.name} registered successfully.`);
+    const responseProcessingAgent = new ResponseProcessingAgent(registry);
+    // Check if API mode is enabled
+    const useApi = process.argv.includes('--api');
+    const apiPort = parseInt(process.env.API_PORT || '3000');
+    if (useApi) {
+        // Start the API server
+        const apiServer = new APIServer(registry, apiPort);
+        apiServer.start();
+        console.log(`API Server started on port ${apiPort}`);
+        console.log('API Mode: Press Ctrl+C to exit');
+        // Handle process termination
+        process.on('SIGINT', () => {
+            console.log('Shutting down API server...');
+            apiServer.stop();
+            process.exit(0);
+        });
+    }
+    else {
+        // Start the CLI
+        const rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stdout
+        });
+        console.log('MCP Multi-Agent System initialized with AI. Type a command or "exit" to quit.');
+        console.log('Available commands:');
+        console.log('- "exit": Exit the application');
+        console.log('- "list servers": List all registered MCP servers');
+        console.log('- Any other command will be processed by the AI agent pipeline');
+        // Simple user ID for the demo
+        const userId = 'user1';
+        // Start the CLI loop
+        prompt();
+        function prompt() {
+            rl.question('> ', async (command) => {
+                if (command.toLowerCase() === 'exit') {
+                    rl.close();
+                    process.exit(0);
                 }
-                catch (error) {
-                    console.error('Error registering server:', error);
+                else if (command.toLowerCase() === 'list servers') {
+                    // List registered servers
+                    const servers = registry.getAllServerConfigs();
+                    console.log('\nRegistered MCP Servers:');
+                    servers.forEach(server => {
+                        const status = registry.getServerStatus(server.id);
+                        console.log(`- ${server.name} (${server.id}):`);
+                        console.log(`  Description: ${server.description || 'N/A'}`);
+                        console.log(`  Installed: ${status?.installed ? 'Yes' : 'No'}`);
+                        console.log(`  Running: ${status?.running ? 'Yes' : 'No'}`);
+                        console.log(`  Command: ${server.command} ${server.args?.join(' ') || ''}`);
+                        console.log(`  Capabilities: ${server.capabilities?.join(', ') || 'N/A'}`);
+                        console.log(`  Requires Auth: ${server.requiresAuth ? 'Yes' : 'No'}`);
+                        console.log('');
+                    });
+                    prompt();
                 }
-                prompt();
-            }
-            else {
-                // Process the command through the AI agent pipeline
-                console.log(`Processing command with AI: ${command}`);
-                try {
-                    // Step 1: Server Selection with AI
-                    console.log('\n[1] AI Server Selection:');
-                    const serverSelectionRequest = {
-                        userId,
-                        command
-                    };
-                    const serverSelectionResponse = await serverSelectionAgent.process(serverSelectionRequest);
-                    if (!serverSelectionResponse.success) {
-                        console.error('Server selection failed:', serverSelectionResponse.error);
-                        prompt();
-                        return;
+                else if (command.toLowerCase().startsWith('register ')) {
+                    // Parse and register a new server
+                    try {
+                        const serverJson = command.substring('register '.length);
+                        const config = JSON.parse(serverJson);
+                        await registry.registerServer(config);
+                        console.log(`Server ${config.name} registered successfully.`);
                     }
-                    console.log(`Selected server: ${serverSelectionResponse.data?.serverName}`);
-                    // Check if server needs to be installed
-                    if (serverSelectionResponse.data?.requiresInstallation) {
-                        console.log(`Server ${serverSelectionResponse.data.serverName} needs to be installed first.`);
-                        const installSuccess = await clientManager.installServer(serverSelectionResponse.data.serverId);
-                        if (!installSuccess) {
-                            console.error(`Failed to install server ${serverSelectionResponse.data.serverName}`);
+                    catch (error) {
+                        console.error('Error registering server:', error);
+                    }
+                    prompt();
+                }
+                else {
+                    // Process the command through the AI agent pipeline
+                    console.log(`Processing command with AI: ${command}`);
+                    try {
+                        // Step 1: Server Selection with AI
+                        console.log('\n[1] AI Server Selection:');
+                        const serverSelectionRequest = {
+                            userId,
+                            command
+                        };
+                        const serverSelectionResponse = await serverSelectionAgent.process(serverSelectionRequest);
+                        if (!serverSelectionResponse.success) {
+                            console.error('Server selection failed:', serverSelectionResponse.error);
                             prompt();
                             return;
                         }
-                        console.log(`Server ${serverSelectionResponse.data.serverName} installed successfully.`);
-                    }
-                    // Step 2: Tool Selection with AI
-                    console.log('\n[2] AI Tool Selection:');
-                    const toolSelectionRequest = {
-                        userId,
-                        command,
-                        context: {
-                            serverDetails: serverSelectionResponse.data
+                        console.log(`Selected server: ${serverSelectionResponse.data?.serverName}`);
+                        // Check if server needs to be installed
+                        if (serverSelectionResponse.data?.requiresInstallation) {
+                            console.log(`Server ${serverSelectionResponse.data.serverName} needs to be installed first.`);
+                            const installSuccess = await clientManager.installServer(serverSelectionResponse.data.serverId);
+                            if (!installSuccess) {
+                                console.error(`Failed to install server ${serverSelectionResponse.data.serverName}`);
+                                prompt();
+                                return;
+                            }
+                            console.log(`Server ${serverSelectionResponse.data.serverName} installed successfully.`);
                         }
-                    };
-                    const toolSelectionResponse = await toolSelectionAgent.process(toolSelectionRequest);
-                    if (!toolSelectionResponse.success) {
-                        console.error('Tool selection failed:', toolSelectionResponse.error);
-                        prompt();
-                        return;
-                    }
-                    console.log(`Selected tool: ${toolSelectionResponse.data?.toolName}`);
-                    console.log(`Tool description: ${toolSelectionResponse.data?.toolDescription}`);
-                    // Step 3: Parameter Generation with AI
-                    console.log('\n[3] AI Parameter Generation:');
-                    const parameterGenerationRequest = {
-                        userId,
-                        command,
-                        context: {
-                            serverDetails: serverSelectionResponse.data,
-                            toolDetails: toolSelectionResponse.data
+                        // Step 2: Tool Selection with AI
+                        console.log('\n[2] AI Tool Selection:');
+                        const toolSelectionRequest = {
+                            userId,
+                            command,
+                            context: {
+                                serverDetails: serverSelectionResponse.data
+                            }
+                        };
+                        const toolSelectionResponse = await toolSelectionAgent.process(toolSelectionRequest);
+                        if (!toolSelectionResponse.success) {
+                            console.error('Tool selection failed:', toolSelectionResponse.error);
+                            prompt();
+                            return;
                         }
-                    };
-                    const parameterGenerationResponse = await parameterGenerationAgent.process(parameterGenerationRequest);
-                    if (!parameterGenerationResponse.success) {
-                        console.error('Parameter generation failed:', parameterGenerationResponse.error);
-                        prompt();
-                        return;
-                    }
-                    console.log('Generated parameters:', JSON.stringify(parameterGenerationResponse.data?.parameters, null, 2));
-                    // Step 4: Execute the tool with the AI-generated parameters
-                    console.log('\n[4] Tool Execution:');
-                    try {
-                        // Connect to the server if needed
-                        await clientManager.connectToServer(serverSelectionResponse.data.serverId);
-                        const result = await clientManager.executeTool(serverSelectionResponse.data.serverId, toolSelectionResponse.data.toolName, parameterGenerationResponse.data.parameters);
-                        console.log('\nResult:');
-                        console.log(formatToolResult(result));
+                        console.log(`Selected tool: ${toolSelectionResponse.data?.toolName}`);
+                        console.log(`Tool description: ${toolSelectionResponse.data?.toolDescription}`);
+                        // Step 3: Parameter Generation with AI
+                        console.log('\n[3] AI Parameter Generation:');
+                        const parameterGenerationRequest = {
+                            userId,
+                            command,
+                            context: {
+                                serverDetails: serverSelectionResponse.data,
+                                toolDetails: toolSelectionResponse.data
+                            }
+                        };
+                        const parameterGenerationResponse = await parameterGenerationAgent.process(parameterGenerationRequest);
+                        if (!parameterGenerationResponse.success) {
+                            console.error('Parameter generation failed:', parameterGenerationResponse.error);
+                            prompt();
+                            return;
+                        }
+                        console.log('Generated parameters:', JSON.stringify(parameterGenerationResponse.data?.parameters, null, 2));
+                        // Step 4: Execute the tool with the AI-generated parameters
+                        console.log('\n[4] Tool Execution:');
+                        try {
+                            // Connect to the server if needed
+                            await clientManager.connectToServer(serverSelectionResponse.data.serverId);
+                            const result = await clientManager.executeTool(serverSelectionResponse.data.serverId, toolSelectionResponse.data.toolName, parameterGenerationResponse.data.parameters);
+                            console.log('\nResult:');
+                            console.log(formatToolResult(result));
+                        }
+                        catch (error) {
+                            console.error('\nError executing tool:');
+                            console.error(error.message);
+                        }
                     }
                     catch (error) {
-                        console.error('\nError executing tool:');
-                        console.error(error.message);
+                        console.error('Error processing command:', error);
                     }
+                    prompt();
                 }
-                catch (error) {
-                    console.error('Error processing command:', error);
+            });
+        }
+        // Helper function to format tool results
+        function formatToolResult(result) {
+            if (!result) {
+                return 'No result';
+            }
+            // For text content, extract the text
+            if (result.content && Array.isArray(result.content)) {
+                const textItems = result.content
+                    .filter((item) => item.type === 'text')
+                    .map((item) => item.text);
+                if (textItems.length > 0) {
+                    return textItems.join('\n');
                 }
-                prompt();
             }
-        });
-    }
-    // Helper function to format tool results
-    function formatToolResult(result) {
-        if (!result) {
-            return 'No result';
+            // Fallback to JSON stringification
+            return JSON.stringify(result, null, 2);
         }
-        // For text content, extract the text
-        if (result.content && Array.isArray(result.content)) {
-            const textItems = result.content
-                .filter((item) => item.type === 'text')
-                .map((item) => item.text);
-            if (textItems.length > 0) {
-                return textItems.join('\n');
-            }
-        }
-        // Fallback to JSON stringification
-        return JSON.stringify(result, null, 2);
     }
 }
 async function registerExampleServers(registry) {
