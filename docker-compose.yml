@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./.mcp-registry:/app/.mcp-registry
+      # Uncomment for development to enable live code updates
+      # - ./src:/app/src
+    environment:
+      - NODE_ENV=production
+      - API_PORT=3000
+      # Add your API keys and credentials here or use .env file
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
+      - SLACK_TEAM_ID=${SLACK_TEAM_ID}
+      - BRAVE_API_KEY=${BRAVE_API_KEY}
+      - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}
+      - EVERART_API_KEY=${EVERART_API_KEY}
+      - EXA_API_KEY=${EXA_API_KEY}
+      - CLIENT_ID=${CLIENT_ID}
+      - CLIENT_SECRET=${CLIENT_SECRET}
+      - GDRIVE_CREDS_DIR=/app/.mcp-registry/gdrive-creds
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s 
