@@ -379,14 +379,34 @@ export class MCPClientManager {
         arguments: parameters
       });
       
-      console.log(`Tool ${toolName} executed successfully`);
-      return result;
+      // Validate and process the result
+      if (!result) {
+        throw new Error(`Tool ${toolName} returned no result`);
+      }
+
+      // Log the raw result for debugging
+      console.log(`Raw result from ${toolName}:`, JSON.stringify(result, null, 2));
+
+      // Check if result has an error property
+      if (result.error) {
+        throw new Error(`Tool ${toolName} failed: ${result.error}`);
+      }
+
+      // Check if result has a data/result property
+      const toolResult = result.data || result.result || result;
+      
+      console.log(`Tool ${toolName} executed successfully with result:`, 
+        JSON.stringify(toolResult, null, 2));
+      
+      return toolResult;
     } catch (error) {
       console.error(`Error executing tool ${toolName} on server ${serverId}:`, error);
       
       // Check server health on error
       await this.checkServerHealth(serverId);
-      throw error;
+      
+      // Rethrow with more context
+      throw new Error(`Failed to execute tool ${toolName}: ${(error as Error).message}`);
     }
   }
 

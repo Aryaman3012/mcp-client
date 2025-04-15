@@ -26,8 +26,4 @@ export declare class AgentPipeline {
      * Execute a tool on an MCP server
      */
     private executeTool;
-    /**
-     * Format the tool execution output for display
-     */
-    private formatOutput;
 }

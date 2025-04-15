@@ -10,7 +10,7 @@ export class MCPRegistry {
   private serverStatus: Map<string, MCPServerStatus> = new Map();
 
   constructor(storagePath: string = './.mcp-registry') {
-    this.configPath = join(storagePath, 'configs.json');
+    this.configPath = join(storagePath, 'mcp-registry-entries.json');
     this.credentialsPath = join(storagePath, 'credentials.json');
   }
 
@@ -19,33 +19,45 @@ export class MCPRegistry {
    */
   async initialize(): Promise<void> {
     try {
-      await fs.mkdir(join(this.configPath, '..'), { recursive: true });
+      console.log('Initializing MCP Registry...');
+      const storageDir = join(this.configPath, '..');
+      await fs.mkdir(storageDir, { recursive: true });
+      console.log('Storage directory created/verified:', storageDir);
       
       // Load configurations
       try {
+        console.log('Loading configurations from:', this.configPath);
         const configData = await fs.readFile(this.configPath, 'utf-8');
         const configs = JSON.parse(configData) as MCPServerConfig[];
+        console.log('Loaded configurations:', configs.length, 'servers');
         configs.forEach(config => this.configs.set(config.id, config));
       } catch (error) {
         // If file doesn't exist, start with empty configs
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+          console.error('Error loading configurations:', error);
           throw error;
         }
+        console.log('No existing configurations found, starting with empty config');
       }
 
       // Load credentials (securely in a real implementation)
       try {
+        console.log('Loading credentials from:', this.credentialsPath);
         const credData = await fs.readFile(this.credentialsPath, 'utf-8');
         const credentials = JSON.parse(credData) as MCPServerCredentials[];
+        console.log('Loaded credentials for', credentials.length, 'servers');
         credentials.forEach(cred => this.credentials.set(cred.serverId, cred));
       } catch (error) {
         // If file doesn't exist, start with empty credentials
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+          console.error('Error loading credentials:', error);
           throw error;
         }
+        console.log('No existing credentials found, starting with empty credentials');
       }
 
       // Initialize status for all servers
+      console.log('Initializing server status...');
       this.configs.forEach((config, id) => {
         this.serverStatus.set(id, {
           id,
@@ -53,6 +65,7 @@ export class MCPRegistry {
           running: false
         });
       });
+      console.log('Server status initialized for', this.serverStatus.size, 'servers');
     } catch (error) {
       console.error('Failed to initialize MCP Registry:', error);
       throw new Error(`Failed to initialize MCP Registry: ${(error as Error).message}`);

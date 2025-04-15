@@ -4,6 +4,7 @@ import { MCPClientManager } from './core/MCPClientManager.js';
 import { MCPIdentificationAgent, CommandIntentAgent, ParameterExtractionAgent, ResponseProcessingAgent } from './agents/AIAgents.js';
 import { MCPServerConfig } from './types/index.js';
 import { APIServer } from './api/server.js';
+import { AgentPipeline } from './core/AgentPipeline.js';
 
 async function main() {
   console.log('Initializing MCP Multi-Agent System with AI...');
@@ -11,9 +12,6 @@ async function main() {
   // Initialize the registry
   const registry = new MCPRegistry();
   await registry.initialize();
-  
-  // Register some example servers
-  await registerExampleServers(registry);
   
   // Initialize the client manager
   const clientManager = new MCPClientManager(registry);
@@ -101,96 +99,32 @@ async function main() {
           console.log(`Processing command with AI: ${command}`);
           
           try {
-            // Step 1: Server Selection with AI
-            console.log('\n[1] AI Server Selection:');
-            const serverSelectionRequest = {
-              userId,
-              command
-            };
-            
-            const serverSelectionResponse = await serverSelectionAgent.process(serverSelectionRequest);
-            
-            if (!serverSelectionResponse.success) {
-              console.error('Server selection failed:', serverSelectionResponse.error);
+            const pipeline = new AgentPipeline(
+              serverSelectionAgent,
+              toolSelectionAgent,
+              parameterGenerationAgent,
+              responseProcessingAgent,
+              clientManager
+            );
+            const result = await pipeline.processCommand(userId, command, {
+              onServerSelection: (details) => console.log('\n[1] AI Server Selection:', details),
+              onToolSelection: (details) => console.log('\n[2] AI Tool Selection:', details),
+              onParameterGeneration: (details) => console.log('\n[3] AI Parameter Generation:', details),
+              onToolExecution: (details) => console.log('\n[4] Tool Execution:', details),
+              onResponseProcessing: (details) => console.log('\n[5] Response Processing:', details)
+            });
+
+            if (!result.success) {
+              console.error('\nError:', result.error);
               prompt();
               return;
             }
             
-            console.log(`Selected server: ${serverSelectionResponse.data?.serverName}`);
+            console.log('\nResult:');
+            console.log(result.output);
             
-            // Check if server needs to be installed
-            if (serverSelectionResponse.data?.requiresInstallation) {
-              console.log(`Server ${serverSelectionResponse.data.serverName} needs to be installed first.`);
-              const installSuccess = await clientManager.installServer(serverSelectionResponse.data.serverId);
-              
-              if (!installSuccess) {
-                console.error(`Failed to install server ${serverSelectionResponse.data.serverName}`);
-                prompt();
-                return;
-              }
-              
-              console.log(`Server ${serverSelectionResponse.data.serverName} installed successfully.`);
-            }
-            
-            // Step 2: Tool Selection with AI
-            console.log('\n[2] AI Tool Selection:');
-            const toolSelectionRequest = {
-              userId,
-              command,
-              context: {
-                serverDetails: serverSelectionResponse.data
-              }
-            };
-            
-            const toolSelectionResponse = await toolSelectionAgent.process(toolSelectionRequest);
-            
-            if (!toolSelectionResponse.success) {
-              console.error('Tool selection failed:', toolSelectionResponse.error);
-              prompt();
-              return;
-            }
-            
-            console.log(`Selected tool: ${toolSelectionResponse.data?.toolName}`);
-            console.log(`Tool description: ${toolSelectionResponse.data?.toolDescription}`);
-            
-            // Step 3: Parameter Generation with AI
-            console.log('\n[3] AI Parameter Generation:');
-            const parameterGenerationRequest = {
-              userId,
-              command,
-              context: {
-                serverDetails: serverSelectionResponse.data,
-                toolDetails: toolSelectionResponse.data
-              }
-            };
-            
-            const parameterGenerationResponse = await parameterGenerationAgent.process(parameterGenerationRequest);
-            
-            if (!parameterGenerationResponse.success) {
-              console.error('Parameter generation failed:', parameterGenerationResponse.error);
-              prompt();
-              return;
-            }
-            
-            console.log('Generated parameters:', JSON.stringify(parameterGenerationResponse.data?.parameters, null, 2));
-            
-            // Step 4: Execute the tool with the AI-generated parameters
-            console.log('\n[4] Tool Execution:');
-            try {
-              // Connect to the server if needed
-              await clientManager.connectToServer(serverSelectionResponse.data.serverId);
-              
-              const result = await clientManager.executeTool(
-                serverSelectionResponse.data.serverId,
-                toolSelectionResponse.data.toolName,
-                parameterGenerationResponse.data.parameters
-              );
-              
-              console.log('\nResult:');
-              console.log(formatToolResult(result));
-            } catch (error) {
-              console.error('\nError executing tool:');
-              console.error((error as Error).message);
+            if (process.env.DEBUG) {
+              console.log('\nRaw Result:', JSON.stringify(result.rawResult, null, 2));
             }
           } catch (error) {
             console.error('Error processing command:', error);
@@ -200,98 +134,9 @@ async function main() {
         }
       });
     }
-    
-    // Helper function to format tool results
-    function formatToolResult(result: any): string {
-      if (!result) {
-        return 'No result';
-      }
-      
-      // For text content, extract the text
-      if (result.content && Array.isArray(result.content)) {
-        const textItems = result.content
-          .filter((item: any) => item.type === 'text')
-          .map((item: any) => item.text);
-        
-        if (textItems.length > 0) {
-          return textItems.join('\n');
-        }
-      }
-      
-      // Fallback to JSON stringification
-      return JSON.stringify(result, null, 2);
-    }
   }
 }
 
-async function registerExampleServers(registry: MCPRegistry) {
-  const servers = registry.getAllServerConfigs();
-  
-  // Only register example servers if the registry is empty
-  if (servers.length === 0) {
-    console.log('Registering example MCP servers...');
-    
-    // Slack MCP Server
-    await registry.registerServer({
-      id: 'slack-server',
-      name: 'Slack MCP Server',
-      description: 'Provides Slack messaging, channel management, and user interaction capabilities',
-      command: 'npx',
-      args: ['-y', '@modelcontextprotocol/server-slack'],
-      installCommand: 'npm install -g @modelcontextprotocol/server-slack',
-      requiresAuth: true,
-      capabilities: ['slack', 'messaging', 'channels', 'chat', 'users', 'threads', 'reactions'],
-      requiredCredentials: [
-        {
-          name: "SLACK_BOT_TOKEN",
-          description: "Slack Bot Token (starts with xoxb-)",
-          isSecret: true,
-          required: true
-        },
-        {
-          name: "SLACK_TEAM_ID",
-          description: "Slack Team ID (starts with T)",
-          isSecret: false,
-          required: true
-        }
-      ]
-    });
-    
-    // Google Drive MCP Server
-    await registry.registerServer({
-      id: 'gdrive-server',
-      name: 'Google Drive MCP Server',
-      description: 'Provides access to Google Drive files, documents, and spreadsheets',
-      command: 'npx',
-      args: ['-y', '@isaacphi/mcp-gdrive'],
-      installCommand: 'npm install -g @isaacphi/mcp-gdrive',
-      requiresAuth: true,
-      capabilities: ['gdrive', 'files', 'documents', 'sheets', 'spreadsheets', 'folders', 'docs'],
-      requiredCredentials: [
-        {
-          name: "CLIENT_ID",
-          description: "Google OAuth Client ID",
-          isSecret: false,
-          required: true
-        },
-        {
-          name: "CLIENT_SECRET",
-          description: "Google OAuth Client Secret",
-          isSecret: true,
-          required: true
-        },
-        {
-          name: "GDRIVE_CREDS_DIR",
-          description: "Directory path to store Google Drive credentials",
-          isSecret: false,
-          required: true
-        }
-      ]
-    });
-    
-    console.log('Example servers registered.');
-  }
-}
 
 // Start the application
 main().catch(error => {

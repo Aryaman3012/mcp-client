@@ -116,13 +116,18 @@ export class AgentPipeline {
                 }
             });
             if (!processedResponse.success) {
+                progressHooks?.onResponseProcessing?.(`Failed to process response: ${processedResponse.error}`);
                 return processedResponse;
             }
+            progressHooks?.onResponseProcessing?.(`Response processed successfully: ${processedResponse.output?.substring(0, 50)}...`);
             progressHooks?.onToolExecution?.('Execution completed successfully.');
+            // Return the processed response with original data attached
             return {
                 success: true,
                 output: processedResponse.output,
-                data: result
+                data: result,
+                rawResult: result,
+                processedResponse: true
             };
         }
         catch (error) {
@@ -132,21 +137,6 @@ export class AgentPipeline {
                 error: `Tool execution error: ${error.message}`
             };
         }
-    }
-    /**
-     * Format the tool execution output for display
-     */
-    formatOutput(result) {
-        if (!result) {
-            return 'No result';
-        }
-        if (typeof result === 'string') {
-            return result;
-        }
-        if (Array.isArray(result)) {
-            return result.join('\n');
-        }
-        return JSON.stringify(result, null, 2);
     }
 }
 //# sourceMappingURL=AgentPipeline.js.map

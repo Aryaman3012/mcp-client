@@ -90,6 +90,8 @@ export interface AgentResponse {
   output?: string;
   error?: string;
   data?: Record<string, any>;
+  rawResult?: any;
+  processedResponse?: boolean;
 }
 
 // Tool Execution types

@@ -1,0 +1,73 @@
+[{
+    "id": "example-server-1",
+    "name": "Example MCP Server 1",
+    "description": "Example server demonstrating basic configuration",
+    "command": "node server1.js",
+    "args": [
+      "--port",
+      "8080"
+    ],
+    "installCommand": "npm install",
+    "requiresAuth": false,
+    "capabilities": [
+      "basic"
+    ],
+    "tools": {
+      "basic_list": {
+        "name": "basic_list",
+        "description": "List items from the basic server",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "type": "number",
+              "description": "Maximum number of items to return"
+            }
+          },
+          "required": []
+        }
+      }
+    }
+  },
+  {
+    "id": "example-server-2",
+    "name": "Example MCP Server 2",
+    "description": "Example server demonstrating authentication",
+    "command": "python server2.py",
+    "args": [],
+    "installCommand": "pip install -r requirements.txt",
+    "requiresAuth": true,
+    "capabilities": [
+      "advanced"
+    ],
+    "requiredCredentials": [
+      {
+        "name": "API_KEY",
+        "description": "API Key for authentication",
+        "isSecret": true,
+        "required": true
+      }
+    ],
+    "tools": {
+      "advanced_process": {
+        "name": "advanced_process",
+        "description": "Process data with advanced server",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "data": {
+              "type": "string",
+              "description": "Data to process"
+            },
+            "mode": {
+              "type": "string",
+              "description": "Processing mode"
+            }
+          },
+          "required": [
+            "data"
+          ]
+        }
+      }
+    }
+  }]

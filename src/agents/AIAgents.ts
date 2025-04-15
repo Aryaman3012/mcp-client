@@ -245,6 +245,8 @@ Identify the most appropriate tool. Respond in JSON:
   "reasoning": "Brief explanation"
 }`;
 
+    console.log(prompt);
+
     try {
       const response = await this.client.chat.completions.create({
         model: AZURE_CONFIG.deployment,

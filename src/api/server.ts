@@ -42,11 +42,13 @@ export class APIServer {
     // Create HTTP server for both Express and Socket.IO
     this.server = http.createServer(this.app);
     
-    // Initialize Socket.IO
+    // Initialize Socket.IO with CORS
     this.io = new SocketIOServer(this.server, {
       cors: {
-        origin: '*',
-        methods: ['GET', 'POST']
+        origin: process.env.CORS_ORIGIN || '*',
+        methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+        allowedHeaders: ['Content-Type', 'Authorization'],
+        credentials: true
       }
     });
 
@@ -55,11 +57,19 @@ export class APIServer {
     this.setupErrorHandling();
     
     // Setup WebSocket handlers
-    setupWebSocketHandlers(this.io, this.pipeline);
+    setupWebSocketHandlers(this.io, this.pipeline, this.registry);
   }
 
   private setupMiddleware(): void {
-    this.app.use(cors());
+    // Configure CORS middleware
+    this.app.use(cors({
+      origin: process.env.CORS_ORIGIN || '*',
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+      allowedHeaders: ['Content-Type', 'Authorization'],
+      credentials: true,
+      maxAge: 86400 // Cache preflight requests for 24 hours
+    }));
+
     this.app.use(express.json());
     this.app.use(express.urlencoded({ extended: true }));
     
